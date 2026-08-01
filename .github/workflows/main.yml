@@ -5,7 +5,7 @@ on:
   # 手动触发
   workflow_dispatch:
   
-  # 定时触发 (已修改为：北京时间每天下午 18:00 一次)
+  # 定时触发 (北京时间每天下午 18:00 一次)
   # 北京时间 18:00 = UTC 时间 10:00
   schedule:
     - cron: '0 10 * * *'
@@ -27,7 +27,7 @@ jobs:
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
       TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
       
-      # 自定义节点代理配置 (已替换为订阅/节点链接)
+      # 自定义节点代理配置 (对应 GitHub Secrets 中的订阅/节点链接)
       NODE_LINK: ${{ secrets.NODE_LINK_LUNES }}
       
       # ========== 项目配置 ==========
@@ -46,7 +46,7 @@ jobs:
         with:
           python-version: 3.11
 
-      # 步骤 3: 安装系统依赖 (仅保留 Xvfb 相关，移除了旧的 sshpass)
+      # 步骤 3: 安装系统依赖
       - name: 📦 安装系统依赖
         run: |
           sudo apt-get update
@@ -58,61 +58,58 @@ jobs:
           pip install --upgrade pip
           pip install seleniumbase>=4.25.0 pyvirtualdisplay>=3.0 requests>=2.31.0 aiohttp
 
-      # 步骤 5: 设置自定义代理 (如果失败会向 TG 发送通知)
+      # 步骤 5: 设置自定义代理 (通过 source 继承环境变量，并将变量写入 GITHUB_ENV 传递给后续步骤)
       - name: 🌐 设置自定义代理
         env:
           NODE_LINK: ${{ env.NODE_LINK }}
           TG_BOT_TOKEN: ${{ env.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ env.TG_CHAT_ID }}
         run: |
-          chmod +x setup_proxy.sh 2>/dev/null || chmod +x scripts/setup_proxy.sh 2>/dev/null || true
-          
-          # 自动寻找並执行您的 setup_proxy.sh 脚本
-          if [ -f "setup_proxy.sh" ]; then
-            PROXY_SCRIPT="setup_proxy.sh"
-          elif [ -f "scripts/setup_proxy.sh" ]; then
-            PROXY_SCRIPT="scripts/setup_proxy.sh"
+          if [ -f "scripts/setup_proxy.sh" ]; then
+            chmod +x scripts/setup_proxy.sh
+            
+            # 使用 source 在当前 shell 执行，以便捕获脚本内 export 或设置的变量
+            source scripts/setup_proxy.sh
+            
+            # 将代理变量写入全局 GitHub 环境
+            if [ -n "$PROXY_SERVER" ]; then
+              echo "PROXY_SERVER=$PROXY_SERVER" >> $GITHUB_ENV
+              echo "✅ 成功将代理服务器写入 GitHub 环境变量: $PROXY_SERVER"
+            else
+              echo "❌ 代理设置失败，setup_proxy.sh 未输出 PROXY_SERVER 变量"
+              exit 1
+            fi
           else
-            echo "❌ 未找到 setup_proxy.sh 脚本，请确保它存在于仓库中！"
-            exit 1
-          fi
-          
-          if ! bash $PROXY_SCRIPT; then
-            echo "❌ 代理设置失败，发送通知..."
-            curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
-              -d chat_id="${TG_CHAT_ID}" \
-              -d parse_mode="HTML" \
-              -d text="❌ <b>JustRunMy 续期失败</b>%0A%0A原因: 代理不可用%0A仓库: ${{ github.repository }}%0A查看: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-              --max-time 10 || true
+            echo "❌ 未在 scripts 文件夹内找到 setup_proxy.sh 脚本！"
             exit 1
           fi
 
-      # 步骤 6: 执行脚本 (注入全新代理环境变量)
+      # 步骤 6: 执行脚本 (路径已精确对接到 scripts/Justrunmy/ 目录，注意大写 J)
       - name: 🚀 运行续期脚本
         env:
           JUSTRUNMY_EMAIL: ${{ env.JUSTRUNMY_EMAIL }}
           JUSTRUNMY_PASSWORD: ${{ env.JUSTRUNMY_PASSWORD }}
           TG_BOT_TOKEN: ${{ env.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ env.TG_CHAT_ID }}
-          PROXY_SERVER: ${{ env.PROXY_SERVER }} # 自动继承来自 setup_proxy.sh 写入的代理地址（例如 socks5://127.0.0.1:1080）
+          PROXY_SERVER: ${{ env.PROXY_SERVER }}
         run: |
           xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-            python justrunmy_renew.py
+            python scripts/Justrunmy/justrunmy_renew.py
 
-      # 步骤 7: 上传截图
+      # 步骤 7: 上传截图 (支持多层级目录下的所有 .png 截图捕获)
       - name: 📸 上传截图
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: screenshots-${{ github.run_id }}
-          path: "*.png"
+          path: "**/*.png"
           retention-days: 7
 
-      # 步骤 8: 清理本地截图
+      # 步骤 8: 清理本地截图 (覆盖所有可能产生截图的子目录)
       - name: 🧹 清理本地截图
         if: always()
         run: |
-          rm -f *.png
+          rm -f *.png scripts/*.png scripts/Justrunmy/*.png 2>/dev/null || true
           echo "✅ 本地截图已清理"
 
       # 步骤 9: 提交执行时间到公开库
@@ -120,7 +117,7 @@ jobs:
         if: always()
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "github-actions[bot]@://github.com"
           mkdir -p justrunmy && echo "$(date +'%Y-%m-%d %H:%M:%S')" > justrunmy/time.txt
           git add justrunmy/time.txt 2>/dev/null || true
           if git diff --cached --quiet; then
