@@ -58,7 +58,7 @@ jobs:
           pip install --upgrade pip
           pip install seleniumbase>=4.25.0 pyvirtualdisplay>=3.0 requests>=2.31.0 aiohttp
 
-      # 步骤 5: 设置自定义代理 (完美对齐 Lunes Host 原始设置逻辑)
+      # 步骤 5: 设置自定义代理 (用 source 執行，並由 YAML 強行寫入全局環境)
       - name: 🌐 设置自定义代理
         env:
           NODE_LINK: ${{ env.NODE_LINK }}
@@ -68,29 +68,34 @@ jobs:
           if [ -f "scripts/setup_proxy.sh" ]; then
             chmod +x scripts/setup_proxy.sh
             
-            # 严格对齐 Lunes 原版写法语法的调用机制
-            if ! bash scripts/setup_proxy.sh; then
-              echo "❌ 代理设置失败，发送通知..."
-              curl -s -X POST "https://telegram.org{TG_BOT_TOKEN}/sendMessage" \
-                -d chat_id="${TG_CHAT_ID}" \
-                -d parse_mode="HTML" \
-                -d text="❌ <b>JustRunMy 续期失败</b>%0A%0A原因: 代理不可用%0A仓库: ${{ github.repository }}%0A查看: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-                --max-time 10 || true
+            # 【核心修正】不使用 bash，改用 source 執行，這樣變數才會留在當前進程！
+            source scripts/setup_proxy.sh
+            
+            # 如果執行後當前 Shell 裡有 PROXY_SERVER 或者是 PROXY，立刻強行寫入 GitHub 全局環境
+            # 優先讀取 PROXY_SERVER，如果沒有就讀取 PROXY 變數
+            FINAL_PROXY="${PROXY_SERVER:-$PROXY}"
+            
+            if [ -n "$FINAL_PROXY" ]; then
+              echo "PROXY_SERVER=$FINAL_PROXY" >> $GITHUB_ENV
+              echo "✅ 成功捕獲並寫入代理伺服器: $FINAL_PROXY"
+            else
+              echo "❌ 代理設定失敗，source 執行後未在當前環境發現 PROXY_SERVER 或 PROXY 變數"
               exit 1
             fi
           else
-            echo "❌ 未在 scripts 文件夹内找到 setup_proxy.sh 脚本！"
+            echo "❌ 未在 scripts 資料夾內找到 setup_proxy.sh 腳本！"
             exit 1
           fi
 
-      # 步骤 6: 执行脚本 (路径已精确对接到 scripts/Justrunmy/ 目录，注意大写 J)
+      # 步骤 6: 执行脚本
       - name: 🚀 运行续期脚本
         env:
           JUSTRUNMY_EMAIL: ${{ env.JUSTRUNMY_EMAIL }}
           JUSTRUNMY_PASSWORD: ${{ env.JUSTRUNMY_PASSWORD }}
           TG_BOT_TOKEN: ${{ env.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ env.TG_CHAT_ID }}
-          PROXY_SERVER: ${{ env.PROXY_SERVER }} # 完美继承自 setup_proxy.sh 内部写入全局环境的代理变量值
+          # 這裡會精確拿到上一步用 >> $GITHUB_ENV 寫入的變數
+          PROXY_SERVER: ${{ env.PROXY_SERVER }} 
         run: |
           xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
             python scripts/Justrunmy/justrunmy_renew.py
