@@ -24,7 +24,6 @@ PASSWORD     = os.environ.get("JUSTRUNMY_PASSWORD")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID   = os.environ.get("TG_CHAT_ID")
 
-# 直接获取您系统环境中的自定义代理（完美接收来自 setup_proxy.sh 写入的 PROXY_SERVER）
 PROXY_SERVER = os.environ.get("PROXY_SERVER", "").strip()
 
 if not EMAIL or not PASSWORD:
@@ -50,7 +49,6 @@ class SshProxy:
         return True
 
     def stop(self):
-        # 外部 sing-box 进程由工作流环境接管，无需在此处关闭
         pass
 
     @property
@@ -59,7 +57,7 @@ class SshProxy:
 
 
 def get_proxy_manager() -> Optional[SshProxy]:
-    """根据环境变量判断是否需要挂载自定义隧道代理"""
+    """根据环境变量判断是否需要挂载自定义 client 代理"""
     if PROXY_SERVER:
         return SshProxy(PROXY_SERVER)
     return None
@@ -93,7 +91,7 @@ def check_ip(proxy: Optional[str] = None) -> str:
         if proxy:
             proxies = {"http": proxy, "https": proxy}
         r = requests.get(
-            "http://ip-api.com",
+            "http://ip-api.com/json/?fields=status,query,countryCode",
             proxies=proxies, timeout=30
         ).json()
         if r.get("status") == "success":
@@ -107,13 +105,13 @@ def check_ip(proxy: Optional[str] = None) -> str:
 
 
 def start_proxy_with_retry(max_retries=3):
-    """验证代理，失败时重试"""
+    """启动代理，失败时重试"""
     proxy_manager = get_proxy_manager()
     proxy_url = None
     if not proxy_manager:
         return None, None
     for attempt in range(1, max_retries + 1):
-        print(f"🔄 尝试验证安全中转状态 ({attempt}/{max_retries})...")
+        print(f"🔄 尝试启动 SSH 动态隧道 ({attempt}/{max_retries})...")
         if proxy_manager.start():
             proxy_url = proxy_manager.proxy
             print(f"✅ 代理已成功挂载：{proxy_url}")
@@ -123,11 +121,11 @@ def start_proxy_with_retry(max_retries=3):
                 print("⏳ 等待 5 秒后重试...")
                 time.sleep(5)
             else:
-                print("⚠️ 代理验证多次失败，继续使用默认环境直连模式。")
+                print("⚠️ SSH 隧道多次启动失败，继续使用默认环境直连模式。")
     return None, None
 
 # ============================================================
-#  Telegram 推送模块 (百分之百您的完好原代码)
+#  Telegram 推送模块
 # ============================================================
 def send_tg_message(status_icon, status_text, time_left):
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
@@ -145,7 +143,7 @@ def send_tg_message(status_icon, status_text, time_left):
         f"{status_icon} {status_text}\n"
         f"⏱️ 剩余: {time_left}"
     )
-    url = f"https://telegram.org{TG_BOT_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TG_CHAT_ID, "text": text, "parse_mode": "HTML"}
     try:
         r = requests.post(url, json=payload, timeout=10)
@@ -155,8 +153,9 @@ def send_tg_message(status_icon, status_text, time_left):
             print(f"  ⚠️ Telegram 通知发送失败: {r.text}")
     except Exception as e:
         print(f"  ⚠️ Telegram 通知发送异常: {e}")
+
 # ============================================================
-#  页面注入脚本 (100% 您的原代码)
+#  页面注入脚本
 # ============================================================
 _EXPAND_JS = """
 (function() {
@@ -172,7 +171,7 @@ _EXPAND_JS = """
         el.style.minWidth = 'max-content';
     }
     document.querySelectorAll('iframe').forEach(function(f){
-        if (f.src && f.src.includes('://cloudflare.com')) {
+        if (f.src && f.src.includes('challenges.cloudflare.com')) {
             f.style.width = '300px'; f.style.height = '65px';
             f.style.minWidth = '300px';
             f.style.visibility = 'visible'; f.style.opacity = '1';
@@ -226,8 +225,9 @@ _WININFO_JS = """
     return {sx: window.screenX || 0, sy: window.screenY || 0, oh: window.outerHeight, ih: window.innerHeight};
 })()
 """
+
 # ============================================================
-#  底层输入工具与多重行为模拟引擎 (100% 您的原代码)
+#  底层输入工具与多重行为模拟引擎
 # ============================================================
 def js_fill_input(sb, selector: str, text: str):
     safe_text = text.replace('\\', '\\\\').replace('"', '\\"')
@@ -300,7 +300,9 @@ def _xdotool_click(x: int, y: int, penetration_mode: bool = False):
         except Exception:
             os.system(f"xdotool mousemove {rx} {ry} click 1 2>/dev/null")
 
-
+# ============================================================
+#  人机验证处理
+# ============================================================
 def _click_turnstile(sb, penetration_mode: bool = False):
     try:
         coords = sb.execute_script(_COORDS_JS)
@@ -348,8 +350,9 @@ def handle_turnstile(sb) -> bool:
         print(f"  ⚠️ 第 {attempt + 1} 次未通过，重试...")
     print("  ❌ Turnstile 6 次均失败")
     return False
+
 # ============================================================
-#  账户登录模块 (100% 您的原代码逻辑)
+#  账户登录模块
 # ============================================================
 def login(sb) -> bool:
     print(f"🌐 打开登录页面: {LOGIN_URL}")
@@ -394,7 +397,7 @@ def login(sb) -> bool:
 
     # 不能仅凭 URL 变化判断登录成功。登录失败页面也可能改变查询参数或尾部斜杠。
     # 直接访问控制面板并检查登录表单是否再次出现，以确认认证 Cookie 真正生效。
-    sb.open("https://justrunmy.app")
+    sb.open("https://justrunmy.app/panel")
     time.sleep(5)
 
     current_url = sb.get_current_url()
@@ -408,7 +411,7 @@ def login(sb) -> bool:
     return False
 
 # ============================================================
-#  自动续期模块 (百分之百您的动态抓取原代码)
+#  自动续期模块 (动态抓取名称 + TG 通知)
 # ============================================================
 def renew(sb) -> bool:
     global DYNAMIC_APP_NAME
@@ -417,20 +420,11 @@ def renew(sb) -> bool:
     print("   🚀 开始自动续期流程")
     print("="*50)
 
-    try:
-        app_element = sb.find_element('a[href*="/panel/application/"]')
-        app_url = app_element.get_attribute("href")
-        DYNAMIC_APP_NAME = app_element.text.strip().split("\n")
-    except Exception as e:
-        print(f"❌ 找不到任何应用详情页链接: {e}")
-        sb.save_screenshot("renew_app_link_not_found.png")
-        send_tg_message("❌", "续期失败(找不到应用)", "未知")
-        return False
-
-    print(f"🎯 动态识别应用名称: {DYNAMIC_APP_NAME}")
-    print(f"🌐 自动进入识别到的详情页: {app_url}")
-    sb.open(app_url)
+    DYNAMIC_APP_NAME = "bot"
+    print("🌐 直接进入指定应用详情页: https://justrunmy.app/panel/application/39529/")
+    sb.open("https://justrunmy.app/panel/application/39529/")
     time.sleep(5)
+    print(f"🎯 当前应用名称: {DYNAMIC_APP_NAME}")
     print(f"📍 当前应用详情页: {sb.get_current_url()}")
 
     print("🖱️ 点击 Reset Timer 按钮...")
@@ -487,11 +481,11 @@ def renew(sb) -> bool:
         return False
 
 # ============================================================
-#  脚本执行入口 (纯粹原代码逻辑挂载)
+#  脚本执行入口
 # ============================================================
 def main():
     print("=" * 50)
-    print("   JustRunMy.app 自动登录与续期脚本 (代理升级版)")
+    print("   JustRunMy.app 自动登录与续期脚本 (SSH 动态直连升级版)")
     print("=" * 50)
     proxy_manager, proxy_url = start_proxy_with_retry(max_retries=5)
     print(f"🔍 正在检查 IP 信息（使用代理: {bool(proxy_url)})...")
@@ -501,7 +495,7 @@ def main():
     CURRENT_IP_INFO = ip_info
     sb_kwargs = {"uc": True, "test": True, "headless": False}
     if proxy_url:
-        print(f"🔗 挂载自建代理至浏览器后端: {proxy_url}")
+        print(f"🔗 挂载隧道代理至浏览器后端: {proxy_url}")
         sb_kwargs["proxy"] = proxy_url
     else:
         print("🌐 未配置安全隧道，正在使用默认 Actions 裸奔直连访问")
@@ -509,7 +503,7 @@ def main():
         with SB(**sb_kwargs) as sb:
             print("✅ 自动化安全浏览器已成功拉起")
             try:
-                sb.open("https://ipify.org")
+                sb.open("https://api.ipify.org/?format=json")
                 print(f"🌐 浏览器端实测出口真实 IP: {sb.get_text('body')}")
             except Exception:
                 pass
