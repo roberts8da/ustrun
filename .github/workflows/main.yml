@@ -46,7 +46,7 @@ jobs:
         with:
           python-version: 3.11
 
-      # 步骤 3: 安装系统依赖
+      # 步骤 3: 安装系统依赖 (增加安装 lunes 所需的系统库)
       - name: 📦 安装系统依赖
         run: |
           sudo apt-get update
@@ -58,7 +58,7 @@ jobs:
           pip install --upgrade pip
           pip install seleniumbase>=4.25.0 pyvirtualdisplay>=3.0 requests>=2.31.0 aiohttp
 
-      # 步骤 5: 设置自定义代理 (终极强行捕获版：防止脚本内 exit 阻断)
+      # 步骤 5: 设置自定义代理 (完美对齐 Lunes Host 原始设置逻辑)
       - name: 🌐 设置自定义代理
         env:
           NODE_LINK: ${{ env.NODE_LINK }}
@@ -68,27 +68,14 @@ jobs:
           if [ -f "scripts/setup_proxy.sh" ]; then
             chmod +x scripts/setup_proxy.sh
             
-            # 1. 在子 Shell 中执行脚本，并将其执行后产生的全局环境变量保存到临时文件中
-            # 这样即使脚本内部有 exit 或者是私有 export，也能完美绕过阻断
-            bash -c "source scripts/setup_proxy.sh && env" > all_env.txt
-            
-            # 2. 从临时文件中精准提取 PROXY_SERVER 的值
-            EXTRACTED_PROXY=$(grep "^PROXY_SERVER=" all_env.txt | cut -d'=' -f2-)
-            
-            # 3. 兼容性检查：如果没找到 PROXY_SERVER，尝试寻找常用的其他代理变量名
-            if [ -z "$EXTRACTED_PROXY" ]; then
-              EXTRACTED_PROXY=$(grep -E "^(socks5_proxy|http_proxy|HTTPS_PROXY|ALL_PROXY)=" all_env.txt | head -n1 | cut -d'=' -f2-)
-            fi
-            
-            # 4. 强制写入 GitHub 全局环境变数
-            if [ -n "$EXTRACTED_PROXY" ]; then
-              echo "PROXY_SERVER=$EXTRACTED_PROXY" >> $GITHUB_ENV
-              echo "✅ 成功强行捕获并写入代理服务器: $EXTRACTED_PROXY"
-              rm -f all_env.txt
-            else
-              echo "❌ 提取失败！all_env.txt 内容如下，请检查脚本输出的变量名："
-              cat all_env.txt | grep -E "proxy|PROXY|SERVER|PORT" || true
-              rm -f all_env.txt
+            # 严格对齐 Lunes 原版写法语法的调用机制
+            if ! bash scripts/setup_proxy.sh; then
+              echo "❌ 代理设置失败，发送通知..."
+              curl -s -X POST "https://telegram.org{TG_BOT_TOKEN}/sendMessage" \
+                -d chat_id="${TG_CHAT_ID}" \
+                -d parse_mode="HTML" \
+                -d text="❌ <b>JustRunMy 续期失败</b>%0A%0A原因: 代理不可用%0A仓库: ${{ github.repository }}%0A查看: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+                --max-time 10 || true
               exit 1
             fi
           else
@@ -103,7 +90,7 @@ jobs:
           JUSTRUNMY_PASSWORD: ${{ env.JUSTRUNMY_PASSWORD }}
           TG_BOT_TOKEN: ${{ env.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ env.TG_CHAT_ID }}
-          PROXY_SERVER: ${{ env.PROXY_SERVER }}
+          PROXY_SERVER: ${{ env.PROXY_SERVER }} # 完美继承自 setup_proxy.sh 内部写入全局环境的代理变量值
         run: |
           xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
             python scripts/Justrunmy/justrunmy_renew.py
@@ -129,7 +116,7 @@ jobs:
         if: always()
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@://github.com"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           mkdir -p justrunmy && echo "$(date +'%Y-%m-%d %H:%M:%S')" > justrunmy/time.txt
           git add justrunmy/time.txt 2>/dev/null || true
           if git diff --cached --quiet; then
