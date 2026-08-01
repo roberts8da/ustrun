@@ -361,16 +361,27 @@ def login(sb) -> bool:
 # ============================================================
 def renew(sb) -> bool:
     global DYNAMIC_APP_NAME
-
     print("\n" + "="*50)
     print("   🚀 开始自动续期流程")
     print("="*50)
 
-    DYNAMIC_APP_NAME = "bot"
-    print("🌐 直接进入指定应用详情页: https://justrunmy.app")
-    sb.open("https://justrunmy.app")
+    try:
+        # 自動在當前頁面（控制台首頁）尋找含有應用連結的元素
+        app_element = sb.find_element('a[href*="/panel/application/"]')
+        app_url = app_element.get_attribute("href")
+        DYNAMIC_APP_NAME = app_element.text.strip().split("\n")[0]
+    except Exception as e:
+        print(f"❌ 找不到任何应用详情页链接: {e}")
+        sb.save_screenshot("renew_app_link_not_found.png")
+        send_tg_message("❌", "续期失败(找不到应用)", "未知")
+        return False
+
+    print(f"🎯 动态识别应用名称: {DYNAMIC_APP_NAME}")
+    print(f"🌐 自动进入识别到的详情页: {app_url}")
+    
+    # 【關鍵修復】這裡會引導瀏覽器前往真正的詳情頁，而不再是留在首頁！
+    sb.open(app_url)
     time.sleep(5)
-    print(f"🎯 当前应用名称: {DYNAMIC_APP_NAME}")
     print(f"📍 当前应用详情页: {sb.get_current_url()}")
 
     print("🖱️ 点击 Reset Timer 按钮...")
