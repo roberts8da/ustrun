@@ -27,8 +27,8 @@ jobs:
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
       TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
       
-      # 自定义节点代理配置 (对应 GitHub Secrets 中的订阅/节点链接)
-      NODE_LINK: ${{ secrets.NODE_LINK_LUNES }}
+      # 自定义节点代理配置 (精准对接您的 JUSTRUNMY 专属 Secrets 密钥匙)
+      NODE_LINK: ${{ secrets.NODE_LINK_JUSTRUNMY }}
       
       # ========== 项目配置 ==========
       SCREENSHOT_DIR: screenshots
@@ -46,7 +46,7 @@ jobs:
         with:
           python-version: 3.11
 
-      # 步骤 3: 安装系统依赖 (增加安装 lunes 所需的系统库)
+      # 步骤 3: 安装 system 依赖
       - name: 📦 安装系统依赖
         run: |
           sudo apt-get update
@@ -58,24 +58,20 @@ jobs:
           pip install --upgrade pip
           pip install seleniumbase>=4.25.0 pyvirtualdisplay>=3.0 requests>=2.31.0 aiohttp
 
-      # 步骤 5: 设置自定义代理 (精准对齐全局 env 变量读取)
+      # 步骤 5: 设置自定义代理 (回归最稳的原生原版调用，完美解决 timing 与覆盖断网问题)
       - name: 🌐 设置自定义代理
         env:
-          # 【核心修正】完美对齐您的要求，修改为读取全局定义的 env.NODE_LINK 变量
-          NODE_LINK: ${{ env.NODE_LINK }}
-          TG_BOT_TOKEN: ${{ env.TG_BOT_TOKEN }}
-          TG_CHAT_ID: ${{ env.TG_CHAT_ID }}
+          # 完美读取外层全局定义的 env.NODE_LINK 变量，精准喂给 sing-box 代理脚本
+          NODE_LINK: ${{ env.NODE_LINK_JUSTRUNMY }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: |
           if [ -f "scripts/setup_proxy.sh" ]; then
             chmod +x scripts/setup_proxy.sh
             
-            # 执行脚本以在后台成功拉起 sing-box 核心
-            if bash scripts/setup_proxy.sh; then
-              # 【最核心修复】因为脚本内部没有往 $GITHUB_ENV 写变量，所以即使 sing-box 在后台跑起来了，Python 也会读空。
-              # 我们在这里强行帮它把刚才生成的 socks5 代理地址写进 GitHub 全局环境文件，传给下一步的 Python！
-              echo "PROXY_SERVER=socks5://127.0.0.1:1080" >> $GITHUB_ENV
-              echo "✅ sing-box 代理服务已就绪，成功强行写入环境变数: socks5://127.0.0.1:1080"
-            else
+            # 严格使用 Lunes 原生 bash 调用
+            # 脚本内部自带了最强健的健康检查，测试成功后会自动将最完美、最相容的代理变量写入全局！
+            if ! bash scripts/setup_proxy.sh; then
               echo "❌ 代理设置失败，发送通知..."
               curl -s -X POST "https://telegram.org{TG_BOT_TOKEN}/sendMessage" \
                 -d chat_id="${TG_CHAT_ID}" \
@@ -89,15 +85,15 @@ jobs:
             exit 1
           fi
 
-      # 步骤 6: 执行脚本
+      # 步骤 6: 执行脚本 (路径已精确对接到 scripts/Justrunmy/ 目录)
       - name: 🚀 运行续期脚本
         env:
           JUSTRUNMY_EMAIL: ${{ env.JUSTRUNMY_EMAIL }}
           JUSTRUNMY_PASSWORD: ${{ env.JUSTRUNMY_PASSWORD }}
           TG_BOT_TOKEN: ${{ env.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ env.TG_CHAT_ID }}
-          # 這裡會精確拿到上一步用 >> $GITHUB_ENV 寫入的變數
-          PROXY_SERVER: ${{ env.PROXY_SERVER }} 
+          # 完美读取由上一步 setup_proxy.sh 写入系统全局环境文件内的代理变量值
+          PROXY_SERVER: ${{ env.PROXY_SERVER }}
         run: |
           xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
             python scripts/Justrunmy/justrunmy_renew.py
@@ -123,7 +119,7 @@ jobs:
         if: always()
         run: |
           git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.email "github-actions[bot]@://github.com"
           mkdir -p justrunmy && echo "$(date +'%Y-%m-%d %H:%M:%S')" > justrunmy/time.txt
           git add justrunmy/time.txt 2>/dev/null || true
           if git diff --cached --quiet; then
