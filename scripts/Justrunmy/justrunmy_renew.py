@@ -7,6 +7,7 @@ import time
 import json
 import socket
 import signal
+import platform
 import subprocess
 import requests
 from typing import Optional
@@ -24,7 +25,7 @@ PASSWORD     = os.environ.get("JUSTRUNMY_PASSWORD")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID   = os.environ.get("TG_CHAT_ID")
 
-# 自定义代理配置 (直接读取 setup_proxy.sh 写入的环境变量)
+# 完美对齐参考脚本，直接读取由 setup_proxy.sh 写入系统的环境变量
 PROXY_SERVER = os.environ.get("PROXY_SERVER", "").strip()
 
 if not EMAIL or not PASSWORD:
@@ -35,34 +36,10 @@ if not EMAIL or not PASSWORD:
 DYNAMIC_APP_NAME = "未知应用"
 CURRENT_IP_INFO = "未知 IP"
 
-# ============================================================
-#  自定义节点代理模块 (已替换原本的 SSH 隧道)
-# ============================================================
-class CustomProxyManager:
-    def __init__(self, proxy_server):
-        self.proxy_server = proxy_server
 
-    def start(self):
-        if not self.proxy_server:
-            print("⚠️ 未提供有效的 PROXY_SERVER 配置")
-            return False
-        print(f"📡 成功识别到自定义代理: {self.proxy_server}")
-        return True
-
-    def stop(self):
-        # 外部自建代理无需在此脚本内进行关闭销毁
-        pass
-
-    @property
-    def proxy(self):
-        return self.proxy_server
-
-
-def get_proxy_manager() -> Optional[CustomProxyManager]:
-    """根据环境变量判断是否需要挂载自定义节点代理"""
-    if PROXY_SERVER:
-        return CustomProxyManager(PROXY_SERVER)
-    return None
+def is_linux() -> bool:
+    """完美对齐参考脚本的系统环境判断"""
+    return platform.system().lower() == "linux"
 
 
 def mask_ip(ip: str) -> str:
@@ -104,19 +81,6 @@ def check_ip(proxy: Optional[str] = None) -> str:
         pass
     mode = "✅ 自定义代理" if proxy else "⚠️ 直连"
     return f"未知 IP [{mode}]"
-
-
-def start_proxy_with_retry(max_retries=1):
-    """启动并挂载自建代理服务接口"""
-    proxy_manager = get_proxy_manager()
-    if not proxy_manager:
-        return None, None
-    
-    if proxy_manager.start():
-        proxy_url = proxy_manager.proxy
-        print(f"✅ 代理已成功挂载：{proxy_url}")
-        return proxy_manager, proxy_url
-    return None, None
 
 # ============================================================
 #  Telegram 推送模块
@@ -342,6 +306,7 @@ def handle_turnstile(sb) -> bool:
         print(f"  ⚠️ 第 {attempt + 1} 次未通过，重试...")
     print("  ❌ Turnstile 6 次均失败")
     return False
+
 # ============================================================
 #  账户登录模块
 # ============================================================
@@ -398,7 +363,6 @@ def login(sb) -> bool:
     print(f"❌ 登录失败或登录会话未生效，当前页面: {current_url}")
     sb.save_screenshot("login_failed.png")
     return False
-
 # ============================================================
 #  自动续期模块 (动态抓取名称 + TG 通知)
 # ============================================================
@@ -410,8 +374,8 @@ def renew(sb) -> bool:
     print("="*50)
 
     DYNAMIC_APP_NAME = "bot"
-    print("🌐 直接进入指定应用详情页: https://justrunmy.app/application/39529/")
-    sb.open("https://justrunmy.app/application/39529/")
+    print("🌐 直接进入指定应用详情页: https://justrunmy.app")
+    sb.open("https://justrunmy.app")
     time.sleep(5)
     print(f"🎯 当前应用名称: {DYNAMIC_APP_NAME}")
     print(f"📍 当前应用详情页: {sb.get_current_url()}")
@@ -470,24 +434,39 @@ def renew(sb) -> bool:
         return False
 
 # ============================================================
-#  脚本执行入口
+#  脚本执行入口 (完美对齐 Lunes 启动逻辑)
 # ============================================================
 def main():
     print("=" * 50)
-    print("   JustRunMy.app 自动登录与续期脚本 (自定义节点升级版)")
+    print("   JustRunMy.app 自动登录与续期脚本 (Lunes 对齐升级版)")
     print("=" * 50)
-    proxy_manager, proxy_url = start_proxy_with_retry(max_retries=1)
-    print(f"🔍 正在检查 IP 信息（使用代理: {bool(proxy_url)})...")
-    ip_info = check_ip(proxy_url)
+    
+    # 1. 打印读取到的代理变量状态
+    if PROXY_SERVER:
+        print(f"📡 成功识别到系统环境变量 PROXY_SERVER: {PROXY_SERVER}")
+    else:
+        print("⚠️ 未识别到 PROXY_SERVER 环境变量，将进入裸奔直连模式。")
+
+    print(f"🔍 正在检查 IP 信息（使用代理: {bool(PROXY_SERVER)})...")
+    ip_info = check_ip(PROXY_SERVER if PROXY_SERVER else None)
     print(f"🌐 IP 信息：{ip_info}")
     global CURRENT_IP_INFO
     CURRENT_IP_INFO = ip_info
-    sb_kwargs = {"uc": True, "test": True, "headless": False}
-    if proxy_url:
-        print(f"🔗 挂载自定义代理至浏览器后端: {proxy_url}")
-        sb_kwargs["proxy"] = proxy_url
-    else:
-        print("🌐 未配置安全隧道，正在使用默认 Actions 裸奔直连访问")
+
+    # 2. 完美对齐 Lunes 启动参数
+    sb_kwargs = dict(
+        uc=True,
+        test=True,
+        locale="en",
+        headed=not is_linux(),  # Linux机房环境下使用 headed=False 启动，防止代理挂载失效
+        user_data_dir=None,
+        chromium_arg="--disable-blink-features=AutomationControlled",
+    )
+    
+    if PROXY_SERVER:
+        print(f"🔗 正在将代理地址挂载至浏览器后端: {PROXY_SERVER}")
+        sb_kwargs["proxy"] = PROXY_SERVER
+
     try:
         with SB(**sb_kwargs) as sb:
             print("✅ 自动化安全浏览器已成功拉起")
@@ -496,14 +475,14 @@ def main():
                 print(f"🌐 浏览器端实测出口真实 IP: {sb.get_text('body')}")
             except Exception:
                 pass
+                
             if login(sb):
                 renew(sb)
             else:
                 print("\n❌ 登录环节失败，终止后续续期操作。")
-                send_tg_message("❌", "登录失败", "未知")
+                send_tg_message("❌", "登录失败", "unknown")
     finally:
-        if proxy_manager:
-            proxy_manager.stop()
+        print("🏁 工作流脚本执行完毕")
 
 if __name__ == "__main__":
     main()
