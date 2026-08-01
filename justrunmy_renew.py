@@ -13,7 +13,7 @@ from typing import Optional
 from urllib.parse import urlparse, parse_qs, unquote
 from seleniumbase import SB
 
-LOGIN_URL = "https://justrunmy.app/id/Account/Login"
+LOGIN_URL = "https://justrunmy.app"
 DOMAIN    = "justrunmy.app"
 
 # ============================================================
@@ -23,11 +23,9 @@ EMAIL        = os.environ.get("JUSTRUNMY_EMAIL")
 PASSWORD     = os.environ.get("JUSTRUNMY_PASSWORD")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID   = os.environ.get("TG_CHAT_ID")
-SSH_HOST     = os.environ.get("SSH_HOST", "")
-SSH_PORT     = int(os.environ.get("SSH_PORT", "22"))
-SSH_USER     = os.environ.get("SSH_USER", "")
-SSH_PASS     = os.environ.get("SSH_PASS", "")
-SOCKS_PORT = int(os.environ.get("SOCKS_PORT", "51080"))
+
+# 自定义代理配置 (直接读取 setup_proxy.sh 写入的环境变量)
+PROXY_SERVER = os.environ.get("PROXY_SERVER", "").strip()
 
 if not EMAIL or not PASSWORD:
     print("❌ 致命错误：未找到 JUSTRUNMY_EMAIL 或 JUSTRUNMY_PASSWORD 环境变量！")
@@ -38,69 +36,32 @@ DYNAMIC_APP_NAME = "未知应用"
 CURRENT_IP_INFO = "未知 IP"
 
 # ============================================================
-#  SSH 隧道直连代理模块
+#  自定义节点代理模块 (已替换原本的 SSH 隧道)
 # ============================================================
-class SshProxy:
-    def __init__(self, host, port, user, password):
-        self.host = host
-        self.port = port
-        self.user = user
-        self.password = password
-        self.proc = None
+class CustomProxyManager:
+    def __init__(self, proxy_server):
+        self.proxy_server = proxy_server
 
     def start(self):
-        if not self.host or not self.user:
-            print("⚠️ 未提供完整的 SSH 配置")
+        if not self.proxy_server:
+            print("⚠️ 未提供有效的 PROXY_SERVER 配置")
             return False
-        print("📡 正在建立 SSH 动态直连隧道 (SOCKS5 代理代理映射)...")
-        print(f"🔗 目标节点: {self.user}@{self.host}:{self.port}")
-        cmd = [
-            "sshpass", "-p", self.password, "ssh",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-o", "ConnectTimeout=15",
-            "-N", "-D", f"127.0.0.1:{SOCKS_PORT}",
-            "-p", str(self.port), f"{self.user}@{self.host}"
-        ]
-        self.proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            start_new_session=True, text=True
-        )
-        for _ in range(30):
-            time.sleep(1)
-            with socket.socket() as s:
-                if s.connect_ex(("127.0.0.1", SOCKS_PORT)) == 0:
-                    print("✅ SSH 动态直连隧道已就绪！")
-                    break
-        else:
-            print("❌ SSH 隧道启动失败或超时，请检查您的主机 Secrets 配置以及网络连通性。")
-            try:
-                _, stderr = self.proc.communicate(timeout=1)
-                if stderr:
-                    print(f"SSH 错误信息: {stderr}")
-            except Exception:
-                pass
-            return False
-        time.sleep(2)
+        print(f"📡 成功识别到自定义代理: {self.proxy_server}")
         return True
 
     def stop(self):
-        if self.proc:
-            try:
-                os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
-                print("🛑 SSH 隧道已安全关闭")
-            except Exception:
-                pass
+        # 外部自建代理无需在此脚本内进行关闭销毁
+        pass
 
     @property
     def proxy(self):
-        return f"socks5://127.0.0.1:{SOCKS_PORT}"
+        return self.proxy_server
 
 
-def get_proxy_manager() -> Optional[SshProxy]:
-    """根据环境变量判断是否需要启动并挂载 SSH 隧道代理"""
-    if SSH_HOST and SSH_USER:
-        return SshProxy(SSH_HOST, SSH_PORT, SSH_USER, SSH_PASS)
+def get_proxy_manager() -> Optional[CustomProxyManager]:
+    """根据环境变量判断是否需要挂载自定义节点代理"""
+    if PROXY_SERVER:
+        return CustomProxyManager(PROXY_SERVER)
     return None
 
 
@@ -132,37 +93,29 @@ def check_ip(proxy: Optional[str] = None) -> str:
         if proxy:
             proxies = {"http": proxy, "https": proxy}
         r = requests.get(
-            "http://ip-api.com/json/?fields=status,query,countryCode",
+            "http://ip-api.com",
             proxies=proxies, timeout=30
         ).json()
         if r.get("status") == "success":
             ip_str = f"{mask_ip(r['query'])} ({r['countryCode']})"
-            mode = "✅ SSH 代理" if proxy else "⚠️ 直连"
+            mode = "✅ 自定义代理" if proxy else "⚠️ 直连"
             return f"{ip_str} [{mode}]"
     except Exception:
         pass
-    mode = "✅ SSH 代理" if proxy else "⚠️ 直连"
+    mode = "✅ 自定义代理" if proxy else "⚠️ 直连"
     return f"未知 IP [{mode}]"
 
 
-def start_proxy_with_retry(max_retries=3):
-    """启动代理，失败时重试"""
+def start_proxy_with_retry(max_retries=1):
+    """启动并挂载自建代理服务接口"""
     proxy_manager = get_proxy_manager()
-    proxy_url = None
     if not proxy_manager:
         return None, None
-    for attempt in range(1, max_retries + 1):
-        print(f"🔄 尝试启动 SSH 动态隧道 ({attempt}/{max_retries})...")
-        if proxy_manager.start():
-            proxy_url = proxy_manager.proxy
-            print(f"✅ 代理已成功挂载：{proxy_url}")
-            return proxy_manager, proxy_url
-        else:
-            if attempt < max_retries:
-                print("⏳ 等待 5 秒后重试...")
-                time.sleep(5)
-            else:
-                print("⚠️ SSH 隧道多次启动失败，继续使用默认环境直连模式。")
+    
+    if proxy_manager.start():
+        proxy_url = proxy_manager.proxy
+        print(f"✅ 代理已成功挂载：{proxy_url}")
+        return proxy_manager, proxy_url
     return None, None
 
 # ============================================================
@@ -184,7 +137,7 @@ def send_tg_message(status_icon, status_text, time_left):
         f"{status_icon} {status_text}\n"
         f"⏱️ 剩余: {time_left}"
     )
-    url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
+    url = f"https://telegram.org{TG_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TG_CHAT_ID, "text": text, "parse_mode": "HTML"}
     try:
         r = requests.post(url, json=payload, timeout=10)
@@ -194,7 +147,6 @@ def send_tg_message(status_icon, status_text, time_left):
             print(f"  ⚠️ Telegram 通知发送失败: {r.text}")
     except Exception as e:
         print(f"  ⚠️ Telegram 通知发送异常: {e}")
-
 # ============================================================
 #  页面注入脚本
 # ============================================================
@@ -212,7 +164,7 @@ _EXPAND_JS = """
         el.style.minWidth = 'max-content';
     }
     document.querySelectorAll('iframe').forEach(function(f){
-        if (f.src && f.src.includes('challenges.cloudflare.com')) {
+        if (f.src && f.src.includes('://cloudflare.com')) {
             f.style.width = '300px'; f.style.height = '65px';
             f.style.minWidth = '300px';
             f.style.visibility = 'visible'; f.style.opacity = '1';
@@ -266,7 +218,6 @@ _WININFO_JS = """
     return {sx: window.screenX || 0, sy: window.screenY || 0, oh: window.outerHeight, ih: window.innerHeight};
 })()
 """
-
 # ============================================================
 #  底层输入工具与多重行为模拟引擎
 # ============================================================
@@ -391,7 +342,6 @@ def handle_turnstile(sb) -> bool:
         print(f"  ⚠️ 第 {attempt + 1} 次未通过，重试...")
     print("  ❌ Turnstile 6 次均失败")
     return False
-
 # ============================================================
 #  账户登录模块
 # ============================================================
@@ -436,9 +386,7 @@ def login(sb) -> bool:
     print("⏳ 等待登录完成并验证会话...")
     time.sleep(5)
 
-    # 不能仅凭 URL 变化判断登录成功。登录失败页面也可能改变查询参数或尾部斜杠。
-    # 直接访问控制面板并检查登录表单是否再次出现，以确认认证 Cookie 真正生效。
-    sb.open("https://justrunmy.app/panel")
+    sb.open("https://justrunmy.app")
     time.sleep(5)
 
     current_url = sb.get_current_url()
@@ -462,8 +410,8 @@ def renew(sb) -> bool:
     print("="*50)
 
     DYNAMIC_APP_NAME = "bot"
-    print("🌐 直接进入指定应用详情页: https://justrunmy.app/panel/application/39529/")
-    sb.open("https://justrunmy.app/panel/application/39529/")
+    print("🌐 直接进入指定应用详情页: https://justrunmy.app/application/39529/")
+    sb.open("https://justrunmy.app/application/39529/")
     time.sleep(5)
     print(f"🎯 当前应用名称: {DYNAMIC_APP_NAME}")
     print(f"📍 当前应用详情页: {sb.get_current_url()}")
@@ -526,9 +474,9 @@ def renew(sb) -> bool:
 # ============================================================
 def main():
     print("=" * 50)
-    print("   JustRunMy.app 自动登录与续期脚本 (SSH 动态直连升级版)")
+    print("   JustRunMy.app 自动登录与续期脚本 (自定义节点升级版)")
     print("=" * 50)
-    proxy_manager, proxy_url = start_proxy_with_retry(max_retries=5)
+    proxy_manager, proxy_url = start_proxy_with_retry(max_retries=1)
     print(f"🔍 正在检查 IP 信息（使用代理: {bool(proxy_url)})...")
     ip_info = check_ip(proxy_url)
     print(f"🌐 IP 信息：{ip_info}")
@@ -536,7 +484,7 @@ def main():
     CURRENT_IP_INFO = ip_info
     sb_kwargs = {"uc": True, "test": True, "headless": False}
     if proxy_url:
-        print(f"🔗 挂载隧道代理至浏览器后端: {proxy_url}")
+        print(f"🔗 挂载自定义代理至浏览器后端: {proxy_url}")
         sb_kwargs["proxy"] = proxy_url
     else:
         print("🌐 未配置安全隧道，正在使用默认 Actions 裸奔直连访问")
@@ -544,7 +492,7 @@ def main():
         with SB(**sb_kwargs) as sb:
             print("✅ 自动化安全浏览器已成功拉起")
             try:
-                sb.open("https://api.ipify.org/?format=json")
+                sb.open("https://ipify.org")
                 print(f"🌐 浏览器端实测出口真实 IP: {sb.get_text('body')}")
             except Exception:
                 pass
