@@ -25,7 +25,7 @@ PASSWORD     = os.environ.get("JUSTRUNMY_PASSWORD")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID   = os.environ.get("TG_CHAT_ID")
 
-# 完美对齐参考脚本，直接读取由 setup_proxy.sh 写入系统的环境变量
+# 完美对接参考脚本，直接读取由 setup_proxy.sh 写入系统的环境变量
 PROXY_SERVER = os.environ.get("PROXY_SERVER", "").strip()
 
 if not EMAIL or not PASSWORD:
@@ -38,23 +38,20 @@ CURRENT_IP_INFO = "未知 IP"
 
 
 def is_linux() -> bool:
-    """完美对齐参考脚本的系统环境判断"""
     return platform.system().lower() == "linux"
 
 
 def mask_ip(ip: str) -> str:
-    """脱敏 IP 地址"""
     if not ip or "." not in ip:
         return ip
     return ip.rsplit(".", 1)[0] + ".***"
 
 
 def mask_email(email: str) -> str:
-    """脱敏邮箱地址"""
     if "@" not in email:
         if len(email) <= 2:
             return email
-        return email[0] + "*" * (len(email) - 2) + email[-1]
+        return email + "*" * (len(email) - 2) + email[-1]
     local, domain = email.split("@", 1)
     if len(local) <= 2:
         masked_local = local
@@ -64,7 +61,6 @@ def mask_email(email: str) -> str:
 
 
 def check_ip(proxy: Optional[str] = None) -> str:
-    """检查落地 IP，明确指出是否使用了代理"""
     try:
         proxies = None
         if proxy:
@@ -81,9 +77,8 @@ def check_ip(proxy: Optional[str] = None) -> str:
         pass
     mode = "✅ 自定义代理" if proxy else "⚠️ 直连"
     return f"未知 IP [{mode}]"
-
 # ============================================================
-#  Telegram 推送模块
+#  Telegram 推送模块 (精确定位官方 API 地址)
 # ============================================================
 def send_tg_message(status_icon, status_text, time_left):
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
@@ -111,6 +106,7 @@ def send_tg_message(status_icon, status_text, time_left):
             print(f"  ⚠️ Telegram 通知发送失败: {r.text}")
     except Exception as e:
         print(f"  ⚠️ Telegram 通知发送异常: {e}")
+
 # ============================================================
 #  页面注入脚本
 # ============================================================
@@ -206,7 +202,7 @@ def _activate_window():
             r = subprocess.run(["xdotool", "search", "--onlyvisible", "--class", cls], capture_output=True, text=True, timeout=3)
             wids = [w for w in r.stdout.strip().split("\n") if w.strip()]
             if wids:
-                subprocess.run(["xdotool", "windowactivate", "--sync", wids[0]], timeout=3, stderr=subprocess.DEVNULL)
+                subprocess.run(["xdotool", "windowactivate", "--sync", wids], timeout=3, stderr=subprocess.DEVNULL)
                 time.sleep(0.2)
                 return
         except Exception:
@@ -225,8 +221,8 @@ def _xdotool_click(x: int, y: int, penetration_mode: bool = False):
         try:
             res = subprocess.run(["xdotool", "getmouselocation", "--shell"], capture_output=True, text=True, timeout=2)
             lines = res.stdout.strip().split("\n")
-            curr_x = int(lines[0].split("=")[1])
-            curr_y = int(lines[1].split("=")[1])
+            curr_x = int(lines.split("="))
+            curr_y = int(lines.split("="))
         except Exception:
             curr_x, curr_y = 0, 0
         target_x = x + random.randint(-4, 4)
@@ -256,9 +252,7 @@ def _xdotool_click(x: int, y: int, penetration_mode: bool = False):
         except Exception:
             os.system(f"xdotool mousemove {rx} {ry} click 1 2>/dev/null")
 
-# ============================================================
-#  人机验证处理
-# ============================================================
+
 def _click_turnstile(sb, penetration_mode: bool = False):
     try:
         coords = sb.execute_script(_COORDS_JS)
@@ -306,7 +300,6 @@ def handle_turnstile(sb) -> bool:
         print(f"  ⚠️ 第 {attempt + 1} 次未通过，重试...")
     print("  ❌ Turnstile 6 次均失败")
     return False
-
 # ============================================================
 #  账户登录模块
 # ============================================================
@@ -434,14 +427,13 @@ def renew(sb) -> bool:
         return False
 
 # ============================================================
-#  脚本执行入口 (完美对齐 Lunes 启动逻辑)
+#  脚本执行入口 (终极修复版)
 # ============================================================
 def main():
     print("=" * 50)
     print("   JustRunMy.app 自动登录与续期脚本 (Lunes 对齐升级版)")
     print("=" * 50)
     
-    # 1. 打印读取到的代理变量状态
     if PROXY_SERVER:
         print(f"📡 成功识别到系统环境变量 PROXY_SERVER: {PROXY_SERVER}")
     else:
@@ -453,12 +445,12 @@ def main():
     global CURRENT_IP_INFO
     CURRENT_IP_INFO = ip_info
 
-    # 2. 完美对齐 Lunes 启动参数
+    # 核心对齐：强制启用 headed=True！配合外层 xvfb-run 确保 vless 代理正常握手解析
     sb_kwargs = dict(
         uc=True,
         test=True,
         locale="en",
-        headed=not is_linux(),  # Linux机房环境下使用 headed=False 启动，防止代理挂载失效
+        headed=True,           
         user_data_dir=None,
         chromium_arg="--disable-blink-features=AutomationControlled",
     )
@@ -470,12 +462,7 @@ def main():
     try:
         with SB(**sb_kwargs) as sb:
             print("✅ 自动化安全浏览器已成功拉起")
-            try:
-                sb.open("https://ipify.org")
-                print(f"🌐 浏览器端实测出口真实 IP: {sb.get_text('body')}")
-            except Exception:
-                pass
-                
+            # 移除了容易卡死断网的 api.ipify.org 检测，直奔登录主题
             if login(sb):
                 renew(sb)
             else:
