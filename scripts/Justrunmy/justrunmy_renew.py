@@ -7,7 +7,6 @@ import time
 import json
 import socket
 import signal
-import platform
 import subprocess
 import requests
 from typing import Optional
@@ -25,7 +24,7 @@ PASSWORD     = os.environ.get("JUSTRUNMY_PASSWORD")
 TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID   = os.environ.get("TG_CHAT_ID")
 
-# 完美对接参考脚本，直接读取由 setup_proxy.sh 写入系统的环境变量
+# 完美对齐您的 sing-box 代理，直接读取系统环境变量
 PROXY_SERVER = os.environ.get("PROXY_SERVER", "").strip()
 
 if not EMAIL or not PASSWORD:
@@ -37,21 +36,19 @@ DYNAMIC_APP_NAME = "未知应用"
 CURRENT_IP_INFO = "未知 IP"
 
 
-def is_linux() -> bool:
-    return platform.system().lower() == "linux"
-
-
 def mask_ip(ip: str) -> str:
+    """脱敏 IP 地址"""
     if not ip or "." not in ip:
         return ip
     return ip.rsplit(".", 1)[0] + ".***"
 
 
 def mask_email(email: str) -> str:
+    """脱敏邮箱地址"""
     if "@" not in email:
         if len(email) <= 2:
             return email
-        return email + "*" * (len(email) - 2) + email[-1]
+        return email[0] + "*" * (len(email) - 2) + email[-1]
     local, domain = email.split("@", 1)
     if len(local) <= 2:
         masked_local = local
@@ -61,6 +58,7 @@ def mask_email(email: str) -> str:
 
 
 def check_ip(proxy: Optional[str] = None) -> str:
+    """检查落地 IP，明确指出是否使用了代理"""
     try:
         proxies = None
         if proxy:
@@ -77,8 +75,10 @@ def check_ip(proxy: Optional[str] = None) -> str:
         pass
     mode = "✅ 自定义代理" if proxy else "⚠️ 直连"
     return f"未知 IP [{mode}]"
+
+
 # ============================================================
-#  Telegram 推送模块 (精确定位官方 API 地址)
+#  Telegram 推送模块 (完全恢复您完好的原代码网址与逻辑)
 # ============================================================
 def send_tg_message(status_icon, status_text, time_left):
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
@@ -106,7 +106,6 @@ def send_tg_message(status_icon, status_text, time_left):
             print(f"  ⚠️ Telegram 通知发送失败: {r.text}")
     except Exception as e:
         print(f"  ⚠️ Telegram 通知发送异常: {e}")
-
 # ============================================================
 #  页面注入脚本
 # ============================================================
@@ -300,6 +299,7 @@ def handle_turnstile(sb) -> bool:
         print(f"  ⚠️ 第 {attempt + 1} 次未通过，重试...")
     print("  ❌ Turnstile 6 次均失败")
     return False
+
 # ============================================================
 #  账户登录模块
 # ============================================================
@@ -427,11 +427,11 @@ def renew(sb) -> bool:
         return False
 
 # ============================================================
-#  脚本执行入口 (终极修复版)
+#  脚本执行入口 (纯粹原代码逻辑挂载)
 # ============================================================
 def main():
     print("=" * 50)
-    print("   JustRunMy.app 自动登录与续期脚本 (Lunes 对齐升级版)")
+    print("   JustRunMy.app 自动登录与续期脚本 (代理升级版)")
     print("=" * 50)
     
     if PROXY_SERVER:
@@ -444,30 +444,28 @@ def main():
     print(f"🌐 IP 信息：{ip_info}")
     global CURRENT_IP_INFO
     CURRENT_IP_INFO = ip_info
-
-    # 核心对齐：强制启用 headed=True！配合外层 xvfb-run 确保 vless 代理正常握手解析
-    sb_kwargs = dict(
-        uc=True,
-        test=True,
-        locale="en",
-        headed=True,           
-        user_data_dir=None,
-        chromium_arg="--disable-blink-features=AutomationControlled",
-    )
     
+    # 百分之百恢復您原本完美無缺的啟動參數
+    sb_kwargs = {"uc": True, "test": True, "headless": False}
     if PROXY_SERVER:
-        print(f"🔗 正在将代理地址挂载至浏览器后端: {PROXY_SERVER}")
+        print(f"🔗 挂载自建代理至浏览器后端: {PROXY_SERVER}")
         sb_kwargs["proxy"] = PROXY_SERVER
-
+    else:
+        print("🌐 未配置安全隧道，正在使用默认 Actions 裸奔直连访问")
+        
     try:
         with SB(**sb_kwargs) as sb:
             print("✅ 自动化安全浏览器已成功拉起")
-            # 移除了容易卡死断网的 api.ipify.org 检测，直奔登录主题
+            try:
+                sb.open("https://ipify.org")
+                print(f"🌐 浏览器端实测出口真实 IP: {sb.get_text('body')}")
+            except Exception:
+                pass
             if login(sb):
                 renew(sb)
             else:
                 print("\n❌ 登录环节失败，终止后续续期操作。")
-                send_tg_message("❌", "登录失败", "unknown")
+                send_tg_message("❌", "登录失败", "未知")
     finally:
         print("🏁 工作流脚本执行完毕")
 
