@@ -13,7 +13,7 @@ from typing import Optional
 from urllib.parse import urlparse, parse_qs, unquote
 from seleniumbase import SB
 
-LOGIN_URL = "https://justrunmy.app"
+LOGIN_URL = "https://justrunmy.app/panel"
 DOMAIN    = "justrunmy.app"
 
 # ============================================================
