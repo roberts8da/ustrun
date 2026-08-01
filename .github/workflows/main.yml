@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
   
   # 定时触发 (北京时间每天下午 18:00 一次)
+  # 北京时间 18:00 = UTC 时间 10:00
   schedule:
     - cron: '0 10 * * *'
 
@@ -27,7 +28,7 @@ jobs:
       TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
       
       # 【驚天核心修正】直接在最外層全域把變數名定死為 NODE_LINK！
-      # 這樣不論是 bash 還是子進程，在系統環境變數中都能 100% 繼承到最純粹的 NODE_LINK！
+      # 這樣不論是 bash 還是子進程，在系統環境變數中都能 100% 完美繼承到最純粹的 NODE_LINK！
       NODE_LINK: ${{ secrets.NODE_LINK_JUSTRUNMY }}
       
       # ========== 项目配置 ==========
@@ -58,13 +59,14 @@ jobs:
           pip install --upgrade pip
           pip install seleniumbase>=4.25.0 pyvirtualdisplay>=3.0 requests>=2.31.0 aiohttp
 
-      # 步骤 5: 设置自定义代理 (最乾淨的 Lunes 原生調用)
+      # 步骤 5: 设置自定义代理 (最乾淨的原生原版調用，完美解決 timing 與覆蓋斷網問題)
       - name: 🌐 设置自定义代理
         run: |
           if [ -f "scripts/setup_proxy.sh" ]; then
             chmod +x scripts/setup_proxy.sh
             
             # 直接 bash 執行！因為最外層環境變數已經有了 NODE_LINK，bash 子 Shell 會完美自動繼承它！
+            # 腳本內部自帶了最健壯的健康檢查，測試成功後會自動將最完美、最相容的代理變數寫入全局！
             if ! bash scripts/setup_proxy.sh; then
               echo "❌ 代理设置失败，发送通知..."
               curl -s -X POST "https://telegram.org{{ secrets.TG_BOT_TOKEN }}/sendMessage" \
@@ -79,20 +81,20 @@ jobs:
             exit 1
           fi
 
-      # 步骤 6: 执行脚本
+      # 步骤 6: 执行脚本 (路径已精确对接到 scripts/Justrunmy/ 目录)
       - name: 🚀 运行续期脚本
         env:
           JUSTRUNMY_EMAIL: ${{ env.JUSTRUNMY_EMAIL }}
           JUSTRUNMY_PASSWORD: ${{ env.JUSTRUNMY_PASSWORD }}
           TG_BOT_TOKEN: ${{ env.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ env.TG_CHAT_ID }}
-          # 完美讀取由上一步 setup_proxy.sh 內部成功拉起後，自動寫入系統全域環境檔案內的代理變數
+          # 完美讀取由上一步 setup_proxy.sh 內部成功拉起後，自動寫入系統全域環境檔案內的代理變數值
           PROXY_SERVER: ${{ env.PROXY_SERVER }}
         run: |
           xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
             python scripts/Justrunmy/justrunmy_renew.py
 
-      # 步骤 7: 上传截图
+      # 步骤 7: 上传截图 (支持多层级目录下的所有 .png 截图捕获)
       - name: 📸 上传截图
         if: always()
         uses: actions/upload-artifact@v4
@@ -101,7 +103,7 @@ jobs:
           path: "**/*.png"
           retention-days: 7
 
-      # 步骤 8: 清理本地截图
+      # 步骤 8: 清理本地截图 (覆盖所有可能产生截图的子目录)
       - name: 🧹 清理本地截图
         if: always()
         run: |
