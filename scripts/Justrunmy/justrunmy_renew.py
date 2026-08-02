@@ -433,8 +433,8 @@ def renew(sb) -> bool:
     print("="*50)
 
     DYNAMIC_APP_NAME = "bot"
-    print("🌐 直接进入指定应用详情页: https://justrunmy.app/application/23098/")
-    sb.open("https://justrunmy.app/application/23098/")
+    print("🌐 直接进入指定应用详情页: https://justrunmy.app/panel/application/23098/")
+    sb.open("https://justrunmy.app/panel/application/23098/")
     
     try:
         sb.wait_for_element_visible('body', timeout=15)
