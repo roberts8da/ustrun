@@ -399,7 +399,8 @@ def login(sb) -> bool:
     try:
         login_selector = 'button[type="submit"].bg-emerald-600'
         sb.wait_for_element_visible(login_selector, timeout=10)
-        sb.execute_script(f'document.querySelector("{login_selector}").click();')
+        # 修正了這裡的 JavaScript 字符串嵌套引號問題，100% 避免語法解析錯誤
+        sb.execute_script("document.querySelector('button[type=\"submit\"].bg-emerald-600').click();")
         print("📍 已成功触发登录按钮点击！")
     except Exception as e:
         print(f"⚠️ 核心定位点击失败: {e}，尝试备用方案回车键提交...")
@@ -408,7 +409,7 @@ def login(sb) -> bool:
     print("⏳ 等待登录完成并验证会话...")
     time.sleep(5)
 
-    sb.open("https://justrunmy.app/panel")
+    sb.open("https://justrunmy.app")
     time.sleep(5)
 
     current_url = sb.get_current_url()
@@ -422,7 +423,7 @@ def login(sb) -> bool:
     return False
 
 # ============================================================
-#  自动续期模块 (动态抓取名称 + TG 通知)
+#  自动续期模块
 # ============================================================
 def renew(sb) -> bool:
     global DYNAMIC_APP_NAME
@@ -432,8 +433,8 @@ def renew(sb) -> bool:
     print("="*50)
 
     DYNAMIC_APP_NAME = "bot"
-    print("🌐 直接进入指定应用详情页: https://justrunmy.app/panel/application/23098/")
-    sb.open("https://justrunmy.app/panel/application/23098/")
+    print("🌐 直接进入指定应用详情页: https://justrunmy.app/application/23098/")
+    sb.open("https://justrunmy.app/application/23098/")
     
     try:
         sb.wait_for_element_visible('body', timeout=15)
@@ -448,7 +449,8 @@ def renew(sb) -> bool:
     try:
         reset_btn_selector = 'button[aria-label="Reset timer"]'
         sb.wait_for_element_visible(reset_btn_selector, timeout=15)
-        sb.execute_script(f'document.querySelector("{reset_btn_selector}").click();')
+        # 同步修正續期點擊的 JS 嵌套引號
+        sb.execute_script("document.querySelector('button[aria-label=\"Reset timer\"]').click();")
         print("📍 已成功点击外层 Reset timer 按钮，等待弹窗加载...")
         time.sleep(4)
     except Exception as e:
@@ -476,7 +478,8 @@ def renew(sb) -> bool:
     try:
         just_reset_selector = 'button:has(i.bi-arrow-clockwise):not([aria-label])'
         sb.wait_for_element_visible(just_reset_selector, timeout=10)
-        sb.execute_script(f'document.querySelector("{just_reset_selector}").click();')
+        # 同步修正此處的 JS 嵌套引號
+        sb.execute_script("document.querySelector('button:has(i.bi-arrow-clockwise):not([aria-label])').click();")
         print("⏳ 已成功点击 Just Reset 提交续期请求，等待服务器处理...")
         time.sleep(5)
     except Exception as e:
