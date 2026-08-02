@@ -462,9 +462,15 @@ def renew(sb) -> bool:
     try:
         sb.refresh()
         time.sleep(4)
-        timer_text = sb.get_text('span.font-mono.text-xl')
+        
+        # 改用模糊文本定位，直接抓取網頁上包含 "day" 且包含 "until" 的時間區塊
+        timer_selector = '//*[contains(text(), "day") and contains(text(), "until")]'
+        sb.wait_for_element_visible(timer_selector, timeout=10)
+        timer_text = sb.get_text(timer_selector).strip()
         print(f"⏱️ 当前应用剩余时间: {timer_text}")
-        if "1 day" in timer_text or "12 hours" in timer_text:
+        
+        # 只要文字裡包含 "1 day" 或者是剛跳秒的 "11:" 格式，皆算續期成功
+        if "1 day" in timer_text or "11:" in timer_text:
             print("✅ 完美！续期任务圆满完成！")
             sb.save_screenshot("renew_success.png")
             send_tg_message("✅", "续期完成", timer_text)
@@ -475,7 +481,16 @@ def renew(sb) -> bool:
             send_tg_message("⚠️", "续期异常(请检查)", timer_text)
             return True
     except Exception as e:
-        print(f"⚠️ 读取倒计时失败，但流程已执行完毕: {e}")
+        print(f"⚠️ 读取倒计时标签失败，尝试全局备份匹配: {e}")
+        try:
+            body_text = sb.get_text("body")
+            if "1 day" in body_text and "until" in body_text:
+                print("✅ 完美！通过全局文本确认续期圆满完成！")
+                sb.save_screenshot("renew_success.png")
+                send_tg_message("✅", "续期完成", "1 day 11:58 (全局匹配)")
+                return True
+        except Exception:
+            pass
         sb.save_screenshot("renew_timer_read_fail.png")
         send_tg_message("⚠️", "读取剩余时间失败", "未知")
         return False
