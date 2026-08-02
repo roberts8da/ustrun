@@ -352,7 +352,7 @@ def handle_turnstile(sb) -> bool:
     return False
 
 # ============================================================
-#  账户登录模块
+#  账户登录模块 (已兼容最新 UI - ID_SignIn)
 # ============================================================
 def login(sb) -> bool:
     print(f"🌐 打开登录页面: {LOGIN_URL}")
@@ -379,6 +379,8 @@ def login(sb) -> bool:
     print("🔑 填写密码...")
     js_fill_input(sb, 'input[name="Password"]', PASSWORD)
     time.sleep(1)
+    
+    # 优先等待并处理登录页面的 Cloudflare 验证
     if sb.execute_script(_EXISTS_JS):
         if not handle_turnstile(sb):
             print("❌ 登录界面的 Turnstile 验证失败")
@@ -386,17 +388,20 @@ def login(sb) -> bool:
             return False
     else:
         print("ℹ️ 未检测到 Turnstile")
-    print("🖱️ 提交登录表单...")
+        
+    print("鼠标提交登录表单 (支持新版 ID_SignIn 按钮)...")
     try:
-        sb.click('button[type="submit"]')
+        # 使用更具容错性的 XPath，完美兼容 Sign In 和 ID_SignIn
+        login_selector = '//button[contains(., "ID_SignIn") or contains(., "Sign In") or @type="submit"]'
+        sb.wait_for_element_visible(login_selector, timeout=10)
+        sb.click(login_selector)
     except Exception:
+        print("⚠️ 无法通过常规点击定位登录按钮，尝试回车键提交...")
         sb.press_keys('input[name="Password"]', '\n')
 
     print("⏳ 等待登录完成并验证会话...")
     time.sleep(5)
 
-    # 不能仅凭 URL 变化判断登录成功。登录失败页面也可能改变查询参数或尾部斜杠。
-    # 直接访问控制面板并检查登录表单是否再次出现，以确认认证 Cookie 真正生效。
     sb.open("https://justrunmy.app/panel")
     time.sleep(5)
 
@@ -411,7 +416,7 @@ def login(sb) -> bool:
     return False
 
 # ============================================================
-#  自动续期模块 (动态抓取名称 + TG 通知)
+#  自动续期模块
 # ============================================================
 def renew(sb) -> bool:
     global DYNAMIC_APP_NAME
@@ -423,33 +428,55 @@ def renew(sb) -> bool:
     DYNAMIC_APP_NAME = "bot"
     print("🌐 直接进入指定应用详情页: https://justrunmy.app/panel/application/23098/")
     sb.open("https://justrunmy.app/panel/application/23098/")
-    time.sleep(50)
+    
+    try:
+        sb.wait_for_element_visible('body', timeout=15)
+    except Exception:
+        pass
+    time.sleep(3) 
+    
     print(f"🎯 当前应用名称: {DYNAMIC_APP_NAME}")
     print(f"📍 当前应用详情页: {sb.get_current_url()}")
 
-    print("🖱️ 点击 Reset Timer 按钮...")
+    print("🖱️ 点击 Reset timer 按钮 (修正大小写定位)...")
     try:
-        sb.click('button:contains("Reset Timer")')
-        time.sleep(3)
+        reset_btn_selector = '//button[contains(., "Reset timer") or contains(., "Reset Timer")]'
+        sb.wait_for_element_visible(reset_btn_selector, timeout=15)
+        sb.click(reset_btn_selector)
+        print("📍 已成功点击外层 Reset timer 按钮，等待弹窗加载...")
+        time.sleep(4)
     except Exception as e:
         print(f"❌ 找不到 Reset Timer 按钮: {e}")
         sb.save_screenshot("renew_reset_btn_not_found.png")
-        send_tg_message("❌", "续期失败(找不到按钮)", "未知")
+        send_tg_message("❌", "续期失败(找不到外层按钮)", "未知")
         return False
 
     print("🛡️ 检查续期弹窗内是否需要 CF 验证...")
-    if sb.execute_script(_EXISTS_JS):
-        if not handle_turnstile(sb):
-            print("❌ 弹窗内的 Turnstile 验证失败")
-            sb.save_screenshot("renew_turnstile_fail.png")
-            send_tg_message("❌", "续期失败(人机验证未过)", "未知")
-            return False
-    else:
-        print("ℹ️ 弹窗内未检测到 Turnstile")
+    # 动态轮询等待弹窗内 Cloudflare 验证框的「成功！」绿勾出现，最多等待 30 秒
+    cf_success = False
+    print("⏳ 正在监控弹窗内的 Cloudflare 人机验证状态...")
+    for _ in range(30):
+        # 检查页面中是否已经出现了“成功！”字样，若出现则代表 CF 自动或手动通过了
+        if sb.is_text_visible("成功！") or sb.execute_script(_SOLVED_JS):
+            print("✅ 弹窗内 Cloudflare 验证成功！")
+            cf_success = True
+            break
+        
+        # 如果未自动通过，且检测到有验证框，尝试调用你原有的底层鼠标击穿引擎去点击它
+        if sb.execute_script(_EXISTS_JS):
+            handle_turnstile(sb)
+            
+        time.sleep(1)
+        
+    if not cf_success:
+        print("⚠️ 提示：未在弹窗内检测到明确的 '成功！' 标志，尝试直接强行点击续期...")
 
     print("🖱️ 点击 Just Reset 确认续期...")
     try:
-        sb.click('button:contains("Just Reset")')
+        # 使用 XPath 确保在弹窗出现后精确定位到 "Just Reset" 按按钮
+        just_reset_selector = '//button[contains(., "Just Reset")]'
+        sb.wait_for_element_visible(just_reset_selector, timeout=10)
+        sb.click(just_reset_selector)
         print("⏳ 提交续期请求，等待服务器处理...")
         time.sleep(5)
     except Exception as e:
@@ -479,6 +506,7 @@ def renew(sb) -> bool:
         sb.save_screenshot("renew_timer_read_fail.png")
         send_tg_message("⚠️", "读取剩余时间失败", "未知")
         return False
+        
 
 # ============================================================
 #  脚本执行入口
