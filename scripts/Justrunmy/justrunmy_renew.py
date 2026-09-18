@@ -421,8 +421,8 @@ def renew(sb) -> bool:
     print("="*50)
 
     DYNAMIC_APP_NAME = "modest_meitner"
-    print("🌐 直接进入指定应用详情页: https://justrunmy.app/panel/application/23098/")
-    sb.open("https://justrunmy.app/panel/application/23098/")
+    print("🌐 直接进入指定应用详情页: https://justrunmy.app/panel/application/64079/")
+    sb.open("https://justrunmy.app/panel/application/64079/")
     time.sleep(5)
     print(f"🎯 当前应用名称: {DYNAMIC_APP_NAME}")
     print(f"📍 当前应用详情页: {sb.get_current_url()}")
